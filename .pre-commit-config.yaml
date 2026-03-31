@@ -1,0 +1,117 @@
+---
+#    pip install pre-commit
+#  Apply to all files without committing:
+#    pre-commit run --all-files
+#  Update this file:
+#    pre-commit autoupdate
+#  to run pre-commit in single folder
+#    git ls-files -- . | xargs pre-commit run --files
+
+exclude: |
+  (?x)^(
+      .backend_env/.*|
+      .venv/.*|
+      .node_modules/.*|
+      .backend/tests/.*|
+  )$
+
+repos:
+  - repo: https://github.com/PyCQA/docformatter
+    rev: v1.7.7
+    hooks:
+      - id: docformatter
+        args:
+          - "-i"
+          - "--wrap-summaries"
+          - "120"
+          - "--wrap-descriptions"
+          - "120"
+          - "--pre-summary-newline"
+
+  - repo: https://github.com/psf/black
+    rev: 26.3.1
+    hooks:
+      - id: black
+        args: ["--line-length=120"]
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-ast
+      - id: fix-byte-order-marker
+      - id: check-case-conflict
+      - id: check-docstring-first
+      - id: check-json
+      - id: check-yaml
+      - id: debug-statements
+      - id: detect-private-key
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: mixed-line-ending
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ["--maxkb=500"]
+
+  - repo: https://github.com/adrienverge/yamllint.git
+    rev: v1.38.0
+    hooks:
+      - id: yamllint
+        args: ["--format", "parsable"]
+
+  - repo: https://github.com/asottile/pyupgrade
+    rev: v3.21.2
+    hooks:
+      - id: pyupgrade
+        args: ["--py311-plus"]
+
+  - repo: https://github.com/asottile/blacken-docs
+    rev: 1.20.0
+    hooks:
+      - id: blacken-docs
+
+  - repo: https://github.com/jendrikseipp/vulture
+    rev: v2.16
+    hooks:
+      - id: vulture
+        args: ["--min-confidence", "80", "--exclude", ".venv", "--", "app"]
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.8
+    hooks:
+      - id: ruff
+        args:
+          - "--fix"
+          - "--exit-non-zero-on-fix"
+          - "--line-length=120"
+          - "--ignore=E402"
+
+  - repo: https://github.com/dannysepler/rm_unneeded_f_str
+    rev: v0.2.0
+    hooks:
+      - id: rm-unneeded-f-str
+
+  - repo: https://github.com/MarcoGorelli/auto-walrus
+    rev: 0.4.1
+    hooks:
+      - id: auto-walrus
+
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy
+        language: python
+        require_serial: true
+        types: [python]
+        entry: mypy
+        args:
+          - "--show-error-codes"
+          - "--ignore-missing-imports"
+        additional_dependencies: ["mypy==1.19.1"]
+      - id: pytest
+        name: pytest
+        language: system
+        pass_filenames: false
+        require_serial: true
+        entry: python3 -m pytest tests -q
+        verbose: true

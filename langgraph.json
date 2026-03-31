@@ -1,0 +1,10 @@
+{
+  "$schema": "https://langgra.ph/schema.json",
+  "graphs": {
+    "rounds_analytics": "app/graph/graph.py:create_graph"
+  },
+  "env": ".env",
+  "dependencies": [
+    "."
+  ]
+}

@@ -1,0 +1,25 @@
+[tool.ruff]
+target-version = "py313"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "C", "I", "UP"]
+ignore = ["E501", "E402"]  # ignore line length (handled by black) and module level import not at top
+
+[tool.black]
+line-length = 120
+
+[tool.mypy]
+ignore_missing_imports = true
+explicit_package_bases = true
+exclude = [".venv/"]
+warn_no_return = false
+
+[tool.vulture]
+exclude = [".venv/"]
+ignore_names = ["cls"]
+make_whitelist = true
+min_confidence = 80
+paths = ["app/"]
+sort_by_size = true
+verbose = false

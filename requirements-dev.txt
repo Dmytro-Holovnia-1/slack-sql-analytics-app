@@ -1,0 +1,12 @@
+-r requirements.txt
+pytest
+pytest-asyncio
+mypy
+ruff
+pre-commit
+vulture
+yamllint
+black
+docformatter
+pyupgrade
+blacken-docs

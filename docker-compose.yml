@@ -1,0 +1,43 @@
+---
+services:
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-rounds_analytics}
+      POSTGRES_USER: ${POSTGRES_USER:-rounds_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rounds_admin_password}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./init_db/01_schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+      - ./init_db/03_readonly_user.sql:/docker-entrypoint-initdb.d/03_readonly_user.sql:ro
+
+  sql-analytics-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      network: host
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    environment:
+      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN}
+      SLACK_APP_TOKEN: ${SLACK_APP_TOKEN}
+      SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY}
+      POSTGRES_DB: ${POSTGRES_DB:-rounds_analytics}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_USER: ${POSTGRES_USER:-rounds_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rounds_admin_password}
+      CHATBOT_DB_USER: ${CHATBOT_DB_USER:-chatbot_ro}
+      CHATBOT_DB_PASSWORD: ${CHATBOT_DB_PASSWORD:-chatbot_ro_password}
+      DB_STATEMENT_TIMEOUT_MS: ${DB_STATEMENT_TIMEOUT_MS:-5000}
+    depends_on:
+      - postgres
+
+volumes:
+  postgres-data:
