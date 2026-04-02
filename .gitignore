@@ -167,3 +167,4 @@ _bmad/
 #_bmad-output
 logs/
 .langgraph_api/
+app_metrics.csv

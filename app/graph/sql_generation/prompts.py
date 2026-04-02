@@ -136,5 +136,4 @@ FEW_SHOT_EXAMPLES_SQL_REPAIR = [
     },
 ]
 
-# Aliases for backward compatibility with existing node imports
 FEW_SHOT_EXAMPLES = FEW_SHOT_EXAMPLES_SQL_EXPERT

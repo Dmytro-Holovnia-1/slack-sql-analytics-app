@@ -3,7 +3,6 @@ from pydantic import SecretStr, ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Module-level constants for use in nodes without Settings access
-# Source of truth is Settings class defaults
 MAX_SQL_REPAIR_ATTEMPTS = 3
 REPAIR_COUNT_EXHAUSTED = MAX_SQL_REPAIR_ATTEMPTS + 1
 OFF_TOPIC_RESPONSE = (
@@ -32,8 +31,8 @@ class Settings(BaseSettings):
 
     # Google/Gemini settings
     google_api_key: SecretStr
-    gemini_standard_model: str = "gemini-1.5-pro"
-    gemini_low_cost_model: str = "gemini-1.5-flash-8b"
+    gemini_standard_model: str
+    gemini_low_cost_model: str
     gemini_transient_retry_max_retries: int = 1
     gemini_transient_retry_default_delay_seconds: float = 5.0
     gemini_transient_retry_max_delay_seconds: float = 60.0

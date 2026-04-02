@@ -10,7 +10,6 @@ from slack_sdk.web.async_client import AsyncWebClient
 
 from app.config import Settings
 from app.graph.messages import user_message
-from app.observability import slack_tracing_context
 
 MENTION_RE = re.compile(r"<@[^>]+>")
 
@@ -96,9 +95,6 @@ async def _post_graph_reply_with_streaming(
         raise
 
     resolved_intent = result.get("intent", "unknown") if result else "unknown"
-
-    with slack_tracing_context(intent=resolved_intent, thread_id=thread_id):
-        pass
 
     return result, resolved_intent
 
