@@ -28,3 +28,12 @@ This roadmap outlines the strategic evolution of the analytics agent from the cu
 *Protecting against prompt drift and model updates.*
 * **LLM-as-a-Judge CI/CD:** Integrate LangSmith Datasets into GitHub Actions.
 * **Golden Dataset:** Maintain a suite of 100+ edge-case questions. Every prompt or model change must pass automated scoring for *Intent Accuracy*, *SQL Correctness*, and *Execution Success* before merging to `main`.
+
+## 6. Rich UX & Data Visualization
+*Moving beyond text and CSVs to interactive, visual data exploration.*
+* **Dynamic Chart Generation:** Integrate Python plotting libraries (Plotly/Matplotlib) to generate and upload trend lines, bar charts, and pie charts directly into Slack threads.
+* **Interactive Slack Block Kit:** Replace text-based follow-ups with interactive UI buttons (e.g., [Download CSV], [View SQL], [Generate Chart]) attached to every analytical response.
+* **Scheduled Reports & Alerts:** Allow users to subscribe to queries ("Send this to #marketing every Monday at 9 AM").
+
+
+* **Human-in-the-Loop (HITL) Feedback:** Add 👍/👎 buttons to responses. Negative feedback automatically flags the trace in LangSmith for prompt refinement and adds the corrected SQL to the few-shot examples.
