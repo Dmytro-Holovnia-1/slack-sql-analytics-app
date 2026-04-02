@@ -41,6 +41,12 @@ db-down:
 	$(DC) stop postgres
 
 db-seed:
+	@echo "Waiting for PostgreSQL to be ready..."
+	@until docker compose exec -T postgres pg_isready -U $${POSTGRES_USER:-rounds_admin} -d $${POSTGRES_DB:-rounds_analytics} > /dev/null 2>&1; do \
+		echo "PostgreSQL is unavailable - sleeping..."; \
+		sleep 1; \
+	done
+	@echo "PostgreSQL is up and running"
 	POSTGRES_HOST=localhost $(PYTHON) init_db/seed_data.py
 
 db-bootstrap:
