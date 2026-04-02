@@ -27,7 +27,7 @@ To run this bot in your own Slack workspace, follow these steps to create and in
 1. **Create the App:**
    * Go to [api.slack.com/apps](https://api.slack.com/apps) and click **Create New App**.
    * Choose **From an app manifest** and select your workspace.
-   * Copy the contents of `docs/slack_app_manifest.yaml` from this repository and paste it into the YAML tab. Click **Create**.
+   * Copy the contents of `slack_app_manifest.yaml` from this repository and paste it into the YAML tab. Click **Create**.
 2. **Generate App-Level Token (Socket Mode):**
    * Go to **Basic Information** -> **App-Level Tokens**.
    * Click **Generate Token and Scopes**, name it `socket-token`, and add the `connections:write` scope.
