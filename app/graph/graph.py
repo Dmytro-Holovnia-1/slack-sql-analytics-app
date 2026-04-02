@@ -1,3 +1,4 @@
+from collections.abc import AsyncGenerator
 from functools import partial
 from typing import Any
 
@@ -14,6 +15,49 @@ from app.graph.sql_generation.executor_node import route_sql_executor, sql_execu
 from app.graph.sql_generation.expert_node import route_sql_expert, sql_expert_node
 from app.graph.sql_generation.repair_node import sql_repair_node
 from app.graph.state import GraphState
+
+
+class CompiledGraphWrapper:
+    """
+    Wrapper around CompiledStateGraph that provides fetch_history with proper closure.
+
+    This avoids the mutable wrapper anti-pattern by creating the closure after compilation and delegating all other
+    operations to the compiled graph.
+    """
+
+    def __init__(self, compiled_app: Any, llm_client: Any):
+        self._compiled_app = compiled_app
+        self._llm_client = llm_client
+        self._nodes = dict(compiled_app.nodes)
+
+        # Create fetch_history with proper closure over compiled app
+        async def fetch_history(config) -> AsyncGenerator:
+            """Fetch state history from the compiled graph."""
+            async for snapshot in compiled_app.aget_state_history(config):
+                yield snapshot
+
+        # Replace the stub node with the real implementation
+        self._nodes["artifact_retrieval_node"] = partial(
+            artifact_retrieval_node, fetch_history=fetch_history, llm_client=llm_client
+        )
+
+    @property
+    def nodes(self):
+        return self._nodes
+
+    def get_node(self, name: str):
+        return self._nodes.get(name)
+
+    async def ainvoke(self, input_data: Any, config: Any | None = None):
+        return await self._compiled_app.ainvoke(input_data, config)
+
+    async def aget_state_history(self, config: Any):
+        async for snapshot in self._compiled_app.aget_state_history(config):
+            yield snapshot
+
+    def __getattr__(self, name: str):
+        # Delegate all other attributes to the compiled app
+        return getattr(self._compiled_app, name)
 
 
 def build_graph(
@@ -37,7 +81,7 @@ def build_graph(
     builder.add_node("sql_repair_node", partial(sql_repair_node, llm_client=llm_client))
     builder.add_node("result_formatter_node", partial(result_formatter_node, llm_client=llm_client))
     builder.add_node("response_node", response_node)
-    # Add stub for artifact_retrieval_node (will be replaced after compilation with proper fetch_history)
+    # Add stub for artifact_retrieval_node (will be replaced in wrapper with proper fetch_history)
     builder.add_node("artifact_retrieval_node", lambda state: state)
     builder.add_node("meta_analyst_node", partial(meta_analyst_node, llm_client=llm_client))
     builder.add_edge(START, "intent_router_node")
@@ -73,24 +117,14 @@ def build_graph(
     builder.add_edge("meta_analyst_node", END)
     builder.add_edge("response_node", END)
 
-    # Compile the graph first
+    # Compile the graph
     compiled_app = builder.compile(checkpointer=checkpointer)
 
-    # Now create fetch_history with a valid closure over the compiled graph
-    async def fetch_history(config):
-        """Fetch state history from the compiled graph."""
-        async for snapshot in compiled_app.aget_state_history(config):
-            yield snapshot
+    # Wrap to provide proper fetch_history closure
+    wrapped_app = CompiledGraphWrapper(compiled_app, llm_client)
 
-    # Replace artifact_retrieval_node with proper implementation
-    compiled_app.add_node(
-        "artifact_retrieval_node",
-        partial(artifact_retrieval_node, fetch_history=fetch_history, llm_client=llm_client),
-        clobber=True,
-    )
-
-    logger.info(f"LangGraph workflow compiled successfully with nodes: {list(compiled_app.nodes.keys())}")
-    return compiled_app
+    logger.info(f"LangGraph workflow compiled successfully with nodes: {list(wrapped_app.nodes.keys())}")
+    return wrapped_app
 
 
 def create_graph() -> Any:
