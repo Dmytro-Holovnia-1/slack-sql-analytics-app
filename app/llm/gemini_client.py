@@ -156,6 +156,10 @@ class GeminiClient:
                     )
                     raise  # Re-raise for tenacity to handle retry
                 # Non-retryable error - raise without retry
+                logger.error(
+                    f"Non-retryable error during operation: "
+                    f"operation={operation_name}, model_type={model_type.value}, error={exc}"
+                )
                 raise exc
 
         return await wrapped_invoke()
