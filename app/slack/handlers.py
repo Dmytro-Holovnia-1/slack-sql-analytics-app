@@ -135,7 +135,9 @@ async def post_graph_reply(
 
         reply_text = settings.fallback_text
         if result:
-            reply_text = result.get("formatted_response", settings.fallback_text).strip() or settings.fallback_text
+            formatted_response = result.get("formatted_response")
+            if formatted_response:
+                reply_text = formatted_response.strip() or settings.fallback_text
 
         logger.info(f"Graph completed: channel={channel}, intent={resolved_intent}, response_length={len(reply_text)}")
         logger.debug(f"Graph result: {result}")
