@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from loguru import logger
 
 from app.db.schema import DB_SCHEMA
-from app.graph.messages import latest_message_text, to_langchain_history
+from app.graph.messages import latest_message_text
 from app.graph.state import GraphState
 from app.llm.model_types import ModelType
 
@@ -16,14 +16,13 @@ from .schemas import TextToSQLOutput
 async def sql_expert_node(state: GraphState, llm_client) -> dict:
     messages = state.get("messages", [])
     user_text = latest_message_text(messages, "user") or ""
-    history = to_langchain_history(messages[:-1])
     # Get current datetime for relative date calculations
     current_datetime = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
 
     result: TextToSQLOutput = await llm_client.generate_structured_output(
         system_prompt=SYSTEM_SQL_EXPERT.format(schema=DB_SCHEMA, current_datetime=current_datetime),
         user_prompt=user_text,
-        history=history,
+        history=messages[:-1],
         few_shot_examples=FEW_SHOT_EXAMPLES,
         response_model=TextToSQLOutput,
         model_type=ModelType.STANDARD,

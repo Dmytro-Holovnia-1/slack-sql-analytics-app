@@ -3,11 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableConfig
 from loguru import logger
 from pydantic import BaseModel, ConfigDict
 
-from app.graph.messages import assistant_message, latest_message_text
+from app.graph.messages import latest_message_text
 from app.graph.state import GraphState
 from app.services.csv_service import rows_to_csv
 from app.slack.formatting import artifact_filename
@@ -138,14 +139,14 @@ async def artifact_retrieval_node(
 def _no_query_response() -> dict:
     """Return a fallback response when no matching past query is found."""
     msg = "No previous query found. Ask a data question first."
-    return {"formatted_response": msg, "messages": [assistant_message(msg)]}
+    return {"formatted_response": msg, "messages": [AIMessage(content=msg)]}
 
 
 def _sql_response(payload: ArtifactPayload) -> dict:
     """Build a response dict containing the SQL artifact."""
     if not payload.sql:
         msg = "Could not find the SQL for that query."
-        return {"formatted_response": msg, "messages": [assistant_message(msg)]}
+        return {"formatted_response": msg, "messages": [AIMessage(content=msg)]}
     response = f"Here's the SQL for *{payload.question}*:"
     logger.info(f"Returning SQL: {payload.sql[:100]}...")
     return {
@@ -153,7 +154,7 @@ def _sql_response(payload: ArtifactPayload) -> dict:
         "artifact_content": payload.sql,
         "artifact_title": artifact_filename("query", payload.question, "sql"),
         "formatted_response": response,
-        "messages": [assistant_message(response)],
+        "messages": [AIMessage(content=response)],
     }
 
 
@@ -161,7 +162,7 @@ def _csv_response(payload: ArtifactPayload) -> dict:
     """Build a response dict containing the CSV export."""
     if not payload.data:
         msg = "No data found for that query."
-        return {"formatted_response": msg, "messages": [assistant_message(msg)]}
+        return {"formatted_response": msg, "messages": [AIMessage(content=msg)]}
     response = f"Here's your CSV export for *{payload.question}*:"
     logger.info(f"Returning CSV with {len(payload.data)} rows")
     return {
@@ -169,7 +170,7 @@ def _csv_response(payload: ArtifactPayload) -> dict:
         "artifact_content": rows_to_csv(payload.data),
         "artifact_title": artifact_filename("export", payload.question, "csv"),
         "formatted_response": response,
-        "messages": [assistant_message(response)],
+        "messages": [AIMessage(content=response)],
     }
 
 

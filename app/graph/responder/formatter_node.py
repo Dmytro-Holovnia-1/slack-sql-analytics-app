@@ -1,7 +1,8 @@
+from langchain_core.messages import AIMessage
 from loguru import logger
 
-from app.config import MULTI_COL_THRESHOLD, MULTI_ROW_THRESHOLD
-from app.graph.messages import assistant_message, latest_message_text
+from app.config import get_settings
+from app.graph.messages import latest_message_text
 from app.graph.state import GraphState
 from app.services.csv_service import rows_to_csv
 from app.slack.formatting import artifact_filename
@@ -9,16 +10,13 @@ from app.slack.formatting import artifact_filename
 from .prompts import FEW_SHOT_EXAMPLES, SYSTEM
 from .schemas import InterpreterOutput
 
-# Complexity heuristic - thresholds from config
-_MULTI_ROW_THRESHOLD = MULTI_ROW_THRESHOLD
-_MULTI_COL_THRESHOLD = MULTI_COL_THRESHOLD
 
-
-def is_complex_result(rows: list[dict] | None) -> bool:
+def _is_complex_result(rows: list[dict] | None) -> bool:
     """True when the result warrants an automatic CSV attachment."""
     if not rows:
         return False
-    return len(rows) > _MULTI_ROW_THRESHOLD or len(rows[0]) > _MULTI_COL_THRESHOLD
+    settings = get_settings()
+    return len(rows) > settings.multi_row_threshold or len(rows[0]) > settings.multi_col_threshold
 
 
 def _format_rows_preview(rows: list[dict] | None) -> str:
@@ -26,8 +24,7 @@ def _format_rows_preview(rows: list[dict] | None) -> str:
         return "no rows"
     headers = list(rows[0].keys())
     lines = ["\t".join(headers)]
-    for row in rows[:50]:
-        lines.append("\t".join(str(row[h]) for h in headers))
+    lines.extend("\t".join(str(row[h]) for h in headers) for row in rows[:50])
     if len(rows) > 50:
         lines.append(f"... {len(rows) - 50} more rows")
     return "\n".join(lines)
@@ -37,7 +34,7 @@ async def result_formatter_node(state: GraphState, llm_client) -> dict:
     if state.get("sql_error") and state.get("repair_count", 0) >= 2:
         logger.warning(f"Formatting error response after {state['repair_count']} failed repairs")
         response = f"Persistent SQL error: {state['sql_error']} — try rephrasing your question."
-        return {"formatted_response": response, "messages": [assistant_message(response)]}
+        return {"formatted_response": response, "messages": [AIMessage(content=response)]}
 
     row_count = state.get("row_count", 0)
     query_results = state.get("query_results")
@@ -63,7 +60,7 @@ async def result_formatter_node(state: GraphState, llm_client) -> dict:
     response = response.replace("\\n", "\n")
 
     artifact: dict = {}
-    if is_complex_result(query_results):
+    if _is_complex_result(query_results):
         title = artifact_filename("export", user_question, "csv")
         artifact = {
             "artifact_format": "csv",
@@ -77,6 +74,6 @@ async def result_formatter_node(state: GraphState, llm_client) -> dict:
     logger.info(f"Response formatted: {len(response)} chars, artifact={bool(artifact)}")
     return {
         "formatted_response": response,
-        "messages": [assistant_message(response)],
+        "messages": [AIMessage(content=response)],
         **artifact,
     }

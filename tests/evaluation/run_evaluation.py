@@ -8,13 +8,13 @@ Usage:
 import asyncio
 
 from dotenv import load_dotenv
+from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import MemorySaver
 from langsmith import evaluate
 
 from app.config import load_settings
 from app.graph.graph import build_graph
-from app.graph.messages import user_message
 from app.llm.gemini_client import GeminiClient
 from app.services.query_service import DatabaseQueryService
 from tests.evaluation.evaluators import EVALUATORS
@@ -65,13 +65,13 @@ async def run_graph_async(inputs: dict) -> dict:
     for turn in chat_history:
         if turn.get("role") == "user":
             await graph.ainvoke(
-                {"messages": [user_message(turn["content"])]},
+                {"messages": [HumanMessage(content=turn["content"])]},
                 config=config,
             )
 
     # ── 2. Run the actual evaluation question ──────────────────────────────
     final_state = await graph.ainvoke(
-        {"messages": [user_message(question)]},
+        {"messages": [HumanMessage(content=question)]},
         config=config,
     )
 

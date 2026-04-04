@@ -2,7 +2,7 @@ from typing import Literal
 
 from loguru import logger
 
-from app.graph.messages import latest_message_text, to_langchain_history
+from app.graph.messages import latest_message_text
 from app.graph.state import GraphState
 
 from .prompts import FEW_SHOT_EXAMPLES, SYSTEM
@@ -12,13 +12,12 @@ from .schemas import IntentRouterOutput
 async def intent_router_node(state: GraphState, llm_client) -> dict:
     messages = state.get("messages", [])
     user_text = latest_message_text(messages, "user") or ""
-    history = to_langchain_history(messages[:-1])
     logger.debug(f"Intent classification request: '{user_text[:200]}'")
 
     result: IntentRouterOutput = await llm_client.generate_structured_output(
         system_prompt=SYSTEM,
         user_prompt=user_text,
-        history=history,
+        history=messages[:-1],
         few_shot_examples=FEW_SHOT_EXAMPLES,
         response_model=IntentRouterOutput,
     )

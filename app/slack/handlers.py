@@ -18,12 +18,12 @@ from typing import Any
 
 from loguru import logger
 from slack_bolt import BoltContext
+from langchain_core.messages import HumanMessage
 from slack_bolt.async_app import AsyncApp
 from slack_bolt.middleware.assistant.async_assistant import AsyncAssistant
 from slack_sdk.web.async_client import AsyncWebClient
 
 from app.config import Settings
-from app.graph.messages import user_message
 
 from .utils import build_thread_context_key, extract_user_text, get_channel, is_transient_error
 
@@ -245,7 +245,7 @@ class BotHandlers:
         result: dict | None = None
         try:
             async for ev in self._graph.astream_events(
-                {"messages": [user_message(user_text)]},
+                {"messages": [HumanMessage(content=user_text)]},
                 config={"configurable": {"thread_id": thread_id}},
                 version="v2",
             ):

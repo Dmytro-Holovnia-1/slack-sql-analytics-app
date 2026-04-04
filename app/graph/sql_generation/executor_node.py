@@ -2,7 +2,7 @@ from typing import Literal
 
 from loguru import logger
 
-from app.config import MAX_SQL_REPAIR_ATTEMPTS
+from app.config import get_settings
 from app.graph.state import GraphState
 from app.services.query_service import QueryExecutionError, UnsafeSQL
 
@@ -37,9 +37,10 @@ def route_sql_executor(
 ]:
     has_error = state.get("sql_error") is not None
     repair_count = state.get("repair_count", 0)
+    max_repair_attempts = get_settings().max_sql_repair_attempts
 
-    if has_error and repair_count < MAX_SQL_REPAIR_ATTEMPTS:
-        logger.debug(f"Routing to sql_repair_node (attempt {repair_count + 1}/{MAX_SQL_REPAIR_ATTEMPTS})")
+    if has_error and repair_count < max_repair_attempts:
+        logger.debug(f"Routing to sql_repair_node (attempt {repair_count + 1}/{max_repair_attempts})")
         return "sql_repair_node"
 
     if has_error:
