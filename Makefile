@@ -19,6 +19,7 @@ help:
 	@echo "  generate-csv  Generate the seed data CSV file"
 	@echo "  eval-setup    Create/Update LangSmith evaluation dataset"
 	@echo "  eval-run      Run LangGraph evaluation on the dataset"
+	@echo "  stress    Run the stress test suite with optional concurrency (default: 40) e.g. 'make stress c=50'"
 
 setup-dev:
 	$(PIP) install -r requirements-dev.txt
@@ -69,3 +70,8 @@ eval-setup:
 
 eval-run:
 	$(PYTHON) -m tests.evaluation.run_evaluation
+
+c ?= 40
+
+stress:
+	$(PYTHON) -m tests.stress_test --concurrency $(c)

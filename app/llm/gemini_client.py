@@ -1,19 +1,17 @@
-import re
 from typing import TypeVar
 
 from google.api_core.exceptions import ResourceExhausted, ServiceUnavailable
+from google.genai.errors import APIError, ClientError
 from langchain_core.messages import BaseMessage
-from langchain_core.prompts import ChatPromptTemplate, FewShotChatMessagePromptTemplate, MessagesPlaceholder
+from langchain_core.prompts import (
+    ChatPromptTemplate,
+    FewShotChatMessagePromptTemplate,
+    MessagesPlaceholder,
+)
 from langchain_google_genai import ChatGoogleGenerativeAI
 from loguru import logger
 from pydantic import BaseModel
-from tenacity import (
-    retry,
-    retry_if_exception,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
-)
+from tenacity import retry, retry_if_exception, stop_after_attempt
 
 from app.config import Settings
 from app.llm.model_types import ModelType
@@ -21,18 +19,60 @@ from app.llm.types import FewShotExample
 
 T = TypeVar("T", bound=BaseModel)
 
-SYSTEM_PROMPT = "You are a minimal Slack smoke-test assistant. Reply briefly and clearly. Do not use markdown tables."
+_TRANSIENT_EXCEPTIONS = (ResourceExhausted, ServiceUnavailable, APIError)
+_FALLBACK_WAIT_S = 10.0
+
+
+def _is_transient(exc: BaseException) -> bool:
+    cause = exc.__cause__ or exc
+    if isinstance(cause, _TRANSIENT_EXCEPTIONS):
+        return True
+    if isinstance(cause, ClientError):
+        return cause.code in {429, 503}
+    return False
+
+
+def _extract_retry_delay(exc: BaseException) -> float | None:
+    cause = exc.__cause__ or exc
+    if not isinstance(cause, ClientError):
+        return None
+    details = cause.details
+    if isinstance(details, dict):
+        details = details.get("error", {}).get("details", [])
+    for detail in details or []:
+        if isinstance(detail, dict) and detail.get("@type") == "type.googleapis.com/google.rpc.RetryInfo":
+            delay_str: str = detail.get("retryDelay", "")
+            return float(delay_str.rstrip("s")) if delay_str else None
+    return None
+
+
+def _wait_retry_delay(retry_state) -> float:
+    exc = retry_state.outcome.exception()
+    return _extract_retry_delay(exc) or _FALLBACK_WAIT_S
+
+
+def _log_retry(retry_state) -> None:
+    exc = retry_state.outcome.exception()
+    max_attempts = retry_state.retry_object.stop.max_attempt_number
+    delay = _wait_retry_delay(retry_state)
+    logger.warning(
+        f"[Gemini retry {retry_state.attempt_number}/{max_attempts}] "
+        f"waiting {delay:.1f}s — {type(exc).__name__}: {str(exc)}"
+    )
 
 
 class GeminiClient:
-    _RETRY_DELAY_PATTERNS = (
-        re.compile(r"Please retry in (?P<seconds>\d+(?:\.\d+)?)s", re.IGNORECASE),
-        re.compile(r"'retryDelay':\s*'(?P<seconds>\d+(?:\.\d+)?)s'", re.IGNORECASE),
-        re.compile(r'"retryDelay":\s*"(?P<seconds>\d+(?:\.\d+)?)s"', re.IGNORECASE),
-    )
-
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
+
+    def _make_retry(self):
+        return retry(
+            retry=retry_if_exception(_is_transient),
+            stop=stop_after_attempt(self._settings.gemini_transient_retry_max_retries + 1),
+            wait=_wait_retry_delay,
+            before_sleep=_log_retry,
+            reraise=True,
+        )
 
     def _get_client(self, model_type: ModelType = ModelType.LOW_COST) -> ChatGoogleGenerativeAI:
         model = (
@@ -48,41 +88,21 @@ class GeminiClient:
             include_thoughts=True,
         )
 
-    async def _generate(self, user_text: str) -> str:
-        prompt_template = ChatPromptTemplate.from_messages(
-            [
-                ("system", SYSTEM_PROMPT),
-                ("human", "{input}"),
-            ]
-        )
-        prompt_value = await prompt_template.ainvoke({"input": user_text.strip()})
-        return await self._generate_with_prompt(prompt_value, model_type=ModelType.LOW_COST)
+    @staticmethod
+    def _extract_text(response) -> str:
+        content = response.content if hasattr(response, "content") else response
+        text = "".join(str(b) for b in content) if isinstance(content, list) else str(content)
+        return text.strip()
 
     async def _generate_with_prompt(self, prompt, model_type: ModelType = ModelType.LOW_COST) -> str:
-        client = self._get_client(model_type=model_type)
-        response = await self._ainvoke_with_transient_retry(
-            lambda: client.ainvoke(prompt),
-            operation_name="generate_text",
-            model_type=model_type,
-        )
-        content = response.content if hasattr(response, "content") else response
-        if isinstance(content, list):
-            text = "".join(str(block) for block in content)
-        else:
-            text = str(content)
-        normalized = text.strip()
-        result = normalized or self._settings.fallback_text
-        return result
+        client = self._get_client(model_type)
 
-    async def generate_chat_response(self, user_text: str) -> str:
-        try:
-            logger.info("Generating chat response for user input")
-            result = await self._generate(user_text)
-            logger.info("Chat response generated successfully")
-            return result
-        except Exception as e:
-            logger.error(f"Error generating chat response: {e}")
-            return self._settings.fallback_text
+        @self._make_retry()
+        async def _call():
+            return await client.ainvoke(prompt)
+
+        response = await _call()
+        return self._extract_text(response) or self._settings.fallback_text
 
     async def generate_structured_output(
         self,
@@ -95,98 +115,30 @@ class GeminiClient:
         model_type: ModelType = ModelType.LOW_COST,
     ) -> T:
         history = history or []
-        prompt_length = len(system_prompt) + len(user_prompt) + sum(len(message.content) for message in history)
         logger.info(
-            f"Generating structured output: model={response_model.__name__}, type={model_type.value}, prompt_length={prompt_length}"
+            f"Generating structured output: model={response_model.__name__}, type={model_type.value}, "
+            f"prompt_length={len(system_prompt) + len(user_prompt) + sum(len(m.content) for m in history)}"
         )
 
-        client = self._get_client(model_type=model_type)
-        structured_llm = client.with_structured_output(response_model)
-        prompt_messages: list = [("system", system_prompt)]
+        messages: list = [("system", system_prompt)]
         if few_shot_examples:
             example_prompt = ChatPromptTemplate.from_messages([("human", "{input}"), ("ai", "{output}")])
-            prompt_messages.append(
+            messages.append(
                 FewShotChatMessagePromptTemplate(
                     example_prompt=example_prompt,
                     examples=few_shot_examples,
                     input_variables=[],
                 )
             )
-        prompt_messages.extend(
-            [
-                MessagesPlaceholder(variable_name="history"),
-                ("human", "{input}"),
-            ]
-        )
-        prompt_template = ChatPromptTemplate.from_messages(prompt_messages)
-        rendered = prompt_template.invoke({"history": history, "input": user_prompt})
-        result = await self._ainvoke_with_transient_retry(
-            lambda: structured_llm.ainvoke(rendered.messages),
-            operation_name=f"generate_structured_output:{response_model.__name__}",
-            model_type=model_type,
-        )
+        messages += [MessagesPlaceholder(variable_name="history"), ("human", "{input}")]
+
+        rendered = ChatPromptTemplate.from_messages(messages).invoke({"history": history, "input": user_prompt})
+        structured_llm = self._get_client(model_type).with_structured_output(response_model)
+
+        @self._make_retry()
+        async def _call():
+            return await structured_llm.ainvoke(rendered.messages)
+
+        result = await _call()
         logger.info(f"Structured output generated: model={response_model.__name__}")
         return result
-
-    async def _ainvoke_with_transient_retry(self, invoke, *, operation_name: str, model_type: ModelType):
-        """Invoke with tenacity-based retry for transient errors."""
-
-        def is_retryable_error(exc: Exception) -> bool:
-            """Check if exception should trigger a retry."""
-            return self._is_transient_retryable_error(exc)
-
-        retry_decorator = retry(
-            retry=retry_if_exception_type((ResourceExhausted, ServiceUnavailable))
-            | retry_if_exception(is_retryable_error),
-            stop=stop_after_attempt(self._settings.gemini_transient_retry_max_retries + 1),
-            wait=wait_exponential(multiplier=1, min=2, max=60),
-            reraise=True,
-        )
-
-        @retry_decorator
-        async def wrapped_invoke():
-            try:
-                return await invoke()
-            except Exception as exc:
-                # Check if it's a retryable transient error
-                if self._is_transient_retryable_error(exc):
-                    logger.warning(
-                        f"Transient error detected, will retry: "
-                        f"operation={operation_name}, model_type={model_type.value}, error={exc}"
-                    )
-                    raise  # Re-raise for tenacity to handle retry
-                # Non-retryable error - raise without retry
-                logger.error(
-                    f"Non-retryable error during operation: "
-                    f"operation={operation_name}, model_type={model_type.value}, error={exc}"
-                )
-                raise exc
-
-        return await wrapped_invoke()
-
-    def _is_transient_retryable_error(self, exc: Exception) -> bool:
-        """Check if exception is a transient/retryable error using type-checking."""
-        if isinstance(exc, (ResourceExhausted, ServiceUnavailable)):
-            return True
-
-        # Fallback to message inspection for wrapped exceptions or edge cases
-        message = str(exc).lower()
-        retry_markers = (
-            "resource_exhausted",
-            "quota exceeded",
-            "rate limit",
-            "retrydelay",
-            "please retry in",
-            "429",
-        )
-        return any(marker in message for marker in retry_markers)
-
-    def _get_retry_delay_seconds(self, exc: Exception) -> float:
-        message = str(exc)
-        for pattern in self._RETRY_DELAY_PATTERNS:
-            match = pattern.search(message)
-            if match:
-                parsed = float(match.group("seconds"))
-                return min(parsed, self._settings.gemini_transient_retry_max_delay_seconds)
-
-        return self._settings.gemini_transient_retry_default_delay_seconds

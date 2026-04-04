@@ -1,16 +1,8 @@
+from functools import lru_cache
+
 from loguru import logger
 from pydantic import SecretStr, ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
-# Module-level constants for use in nodes without Settings access
-MAX_SQL_REPAIR_ATTEMPTS = 3
-REPAIR_COUNT_EXHAUSTED = MAX_SQL_REPAIR_ATTEMPTS + 1
-OFF_TOPIC_RESPONSE = (
-    "I can only answer questions about the Rounds app portfolio analytics. "
-    "Try asking about installs, revenue, UA costs, or app performance."
-)
-MULTI_ROW_THRESHOLD = 10
-MULTI_COL_THRESHOLD = 3
 
 
 class ConfigError(ValueError):
@@ -33,9 +25,7 @@ class Settings(BaseSettings):
     google_api_key: SecretStr
     gemini_standard_model: str
     gemini_low_cost_model: str
-    gemini_transient_retry_max_retries: int = 1
-    gemini_transient_retry_default_delay_seconds: float = 5.0
-    gemini_transient_retry_max_delay_seconds: float = 60.0
+    gemini_transient_retry_max_retries: int = 3
     fallback_text: str = "Sorry, the assistant encountered an unexpected error. Please try again later."
 
     # LangSmith settings
@@ -100,3 +90,8 @@ def load_settings() -> Settings:
     except ValidationError as e:
         logger.error(f"Configuration validation failed: {e}")
         raise ConfigError(f"Missing or invalid required environment variables: {e}") from e
+
+
+@lru_cache(maxsize=1)
+def get_settings() -> Settings:
+    return load_settings()

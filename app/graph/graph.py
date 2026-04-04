@@ -22,31 +22,14 @@ from app.graph.state import GraphState
 
 
 class NodeName(StrEnum):
-    INTENT_ROUTER    = "intent_router_node"
-    SQL_EXPERT       = "sql_expert_node"
-    SQL_EXECUTOR     = "sql_executor_node"
-    SQL_REPAIR       = "sql_repair_node"
+    INTENT_ROUTER = "intent_router_node"
+    SQL_EXPERT = "sql_expert_node"
+    SQL_EXECUTOR = "sql_executor_node"
+    SQL_REPAIR = "sql_repair_node"
     RESULT_FORMATTER = "result_formatter_node"
-    RESPONSE         = "response_node"
+    RESPONSE = "response_node"
     ARTIFACT_RETRIEVAL = "artifact_retrieval_node"
-    META_ANALYST     = "meta_analyst_node"
-
-
-class _Ref:
-    """Single-slot mutable container for a forward reference to the compiled graph."""
-    __slots__ = ("app",)
-
-    def __init__(self) -> None:
-        self.app: CompiledStateGraph | None = None
-
-
-def _make_fetch_history(ref: _Ref):
-    """Return an async-generator that delegates to ref.app once it is populated."""
-    async def fetch_history(config: Any) -> AsyncGenerator[Any, None]:
-        assert ref.app is not None, "fetch_history called before graph was compiled"
-        async for snapshot in ref.app.aget_state_history(config):
-            yield snapshot
-    return fetch_history
+    META_ANALYST = "meta_analyst_node"
 
 
 def _register_nodes(
@@ -55,13 +38,13 @@ def _register_nodes(
     query_service: Any,
     fetch_history,
 ) -> None:
-    builder.add_node(NodeName.INTENT_ROUTER,    partial(intent_router_node,    llm_client=llm_client))
-    builder.add_node(NodeName.SQL_EXPERT,        partial(sql_expert_node,        llm_client=llm_client))
-    builder.add_node(NodeName.SQL_EXECUTOR,      partial(sql_executor_node,      query_service=query_service))
-    builder.add_node(NodeName.SQL_REPAIR,        partial(sql_repair_node,        llm_client=llm_client))
-    builder.add_node(NodeName.RESULT_FORMATTER,  partial(result_formatter_node,  llm_client=llm_client))
-    builder.add_node(NodeName.RESPONSE,          response_node)
-    builder.add_node(NodeName.META_ANALYST,      partial(meta_analyst_node,      llm_client=llm_client))
+    builder.add_node(NodeName.INTENT_ROUTER, partial(intent_router_node, llm_client=llm_client))
+    builder.add_node(NodeName.SQL_EXPERT, partial(sql_expert_node, llm_client=llm_client))
+    builder.add_node(NodeName.SQL_EXECUTOR, partial(sql_executor_node, query_service=query_service))
+    builder.add_node(NodeName.SQL_REPAIR, partial(sql_repair_node, llm_client=llm_client))
+    builder.add_node(NodeName.RESULT_FORMATTER, partial(result_formatter_node, llm_client=llm_client))
+    builder.add_node(NodeName.RESPONSE, response_node)
+    builder.add_node(NodeName.META_ANALYST, partial(meta_analyst_node, llm_client=llm_client))
     # artifact_retrieval_node gets a live fetch_history closure bound via _Ref
     builder.add_node(
         NodeName.ARTIFACT_RETRIEVAL,
@@ -72,35 +55,15 @@ def _register_nodes(
 def _register_edges(builder: StateGraph) -> None:
     builder.add_edge(START, NodeName.INTENT_ROUTER)
 
-    builder.add_conditional_edges(
-        NodeName.INTENT_ROUTER, route_intent,
-        {
-            NodeName.SQL_EXPERT:          NodeName.SQL_EXPERT,
-            NodeName.ARTIFACT_RETRIEVAL:  NodeName.ARTIFACT_RETRIEVAL,
-            NodeName.META_ANALYST:        NodeName.META_ANALYST,
-            NodeName.RESPONSE:            NodeName.RESPONSE,
-        },
-    )
-    builder.add_conditional_edges(
-        NodeName.SQL_EXPERT, route_sql_expert,
-        {
-            NodeName.RESPONSE:     NodeName.RESPONSE,
-            NodeName.SQL_EXECUTOR: NodeName.SQL_EXECUTOR,
-        },
-    )
-    builder.add_conditional_edges(
-        NodeName.SQL_EXECUTOR, route_sql_executor,
-        {
-            NodeName.SQL_REPAIR:        NodeName.SQL_REPAIR,
-            NodeName.RESULT_FORMATTER:  NodeName.RESULT_FORMATTER,
-        },
-    )
+    builder.add_conditional_edges(NodeName.INTENT_ROUTER, route_intent)
+    builder.add_conditional_edges(NodeName.SQL_EXPERT, route_sql_expert)
+    builder.add_conditional_edges(NodeName.SQL_EXECUTOR, route_sql_executor)
 
-    builder.add_edge(NodeName.SQL_REPAIR,        NodeName.SQL_EXECUTOR)
-    builder.add_edge(NodeName.RESULT_FORMATTER,  END)
+    builder.add_edge(NodeName.SQL_REPAIR, NodeName.SQL_EXECUTOR)
+    builder.add_edge(NodeName.RESULT_FORMATTER, END)
     builder.add_edge(NodeName.ARTIFACT_RETRIEVAL, END)
-    builder.add_edge(NodeName.META_ANALYST,      END)
-    builder.add_edge(NodeName.RESPONSE,          END)
+    builder.add_edge(NodeName.META_ANALYST, END)
+    builder.add_edge(NodeName.RESPONSE, END)
 
 
 def build_graph(
@@ -109,31 +72,36 @@ def build_graph(
     checkpointer: Any | None = None,
 ) -> CompiledStateGraph:
     """
-    Build and compile the LangGraph workflow.
+    Compile and return the analytics LangGraph state machine.
 
-    Uses a forward-reference (_Ref) so that artifact_retrieval_node receives a
-    fetch_history closure that is valid at call time without wrapping the compiled graph.
-    Returns the bare CompiledStateGraph — no wrapper, compatible with LangGraph Studio.
+    ``fetch_history`` is a closure over ``_graph`` to break a circular init:
+    artifact_retrieval needs ``aget_state_history`` → which needs a compiled
+    graph → which needs nodes already registered. Assigning ``_graph`` after
+    ``builder.compile()`` works because Python closures capture variables by
+    reference, not by value.
     """
-    logger.info("Building LangGraph workflow")
+    _graph: CompiledStateGraph | None = None
 
-    ref = _Ref()
-    fetch_history = _make_fetch_history(ref)
+    async def fetch_history(config: Any) -> AsyncGenerator[Any]:
+        if _graph is None:
+            raise RuntimeError(
+                "fetch_history called before build_graph completed — " "this is a bug in graph initialization order."
+            )
+        async for snapshot in _graph.aget_state_history(config):
+            yield snapshot
 
     builder = StateGraph(GraphState)
     _register_nodes(builder, llm_client, query_service, fetch_history)
     _register_edges(builder)
 
-    compiled = builder.compile(checkpointer=checkpointer)
-    ref.app = compiled  # fill the forward reference; fetch_history is now live
-
-    logger.info("LangGraph workflow compiled with nodes: %s", list(compiled.nodes))
-    return compiled
+    _graph = builder.compile(checkpointer=checkpointer)
+    return _graph
 
 
 def create_graph() -> CompiledStateGraph:
     """
     Factory for LangGraph Studio — resolves dependencies from environment variables.
+
     Deferred imports prevent circular dependency issues at module load time.
     """
     from app.config import load_settings

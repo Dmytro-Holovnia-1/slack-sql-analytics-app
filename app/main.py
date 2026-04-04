@@ -12,7 +12,7 @@ from app.graph.graph import build_graph
 from app.llm.gemini_client import GeminiClient
 from app.logging_config import setup_logging
 from app.services.query_service import DatabaseQueryService
-from app.slack.handlers import register_handlers
+from app.slack.handlers import BotHandlers
 
 
 def configure_observability(settings: Settings) -> None:
@@ -20,13 +20,12 @@ def configure_observability(settings: Settings) -> None:
     os.environ["LANGSMITH_PROJECT"] = settings.langsmith_project
     os.environ["LANGSMITH_ENDPOINT"] = settings.langsmith_endpoint
     if settings.langsmith_api_key is not None:
-        api_key_value = settings.langsmith_api_key.get_secret_value()
-        if api_key_value:
+        if api_key_value := settings.langsmith_api_key.get_secret_value():
             os.environ["LANGSMITH_API_KEY"] = api_key_value
     logger.info(f"LangSmith tracing enabled: {settings.langsmith_tracing}")
 
 
-def create_app(settings: Settings | None = None, checkpointer=None) -> AsyncApp:
+def create_app(settings: Settings, checkpointer=None) -> AsyncApp:
     logger.info("Creating Slack app instance")
     resolved_settings = settings or load_settings()
     configure_observability(resolved_settings)
@@ -41,7 +40,7 @@ def create_app(settings: Settings | None = None, checkpointer=None) -> AsyncApp:
         query_service=DatabaseQueryService.from_settings(resolved_settings),
         checkpointer=resolved_checkpointer,
     )
-    register_handlers(app, graph, resolved_settings)
+    BotHandlers(graph, settings).register(app)
     logger.info("Slack app instance created successfully")
     return app
 
