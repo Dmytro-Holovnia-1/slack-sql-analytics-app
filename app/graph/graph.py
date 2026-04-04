@@ -72,29 +72,9 @@ def _register_nodes(
 def _register_edges(builder: StateGraph) -> None:
     builder.add_edge(START, NodeName.INTENT_ROUTER)
 
-    builder.add_conditional_edges(
-        NodeName.INTENT_ROUTER, route_intent,
-        {
-            NodeName.SQL_EXPERT:          NodeName.SQL_EXPERT,
-            NodeName.ARTIFACT_RETRIEVAL:  NodeName.ARTIFACT_RETRIEVAL,
-            NodeName.META_ANALYST:        NodeName.META_ANALYST,
-            NodeName.RESPONSE:            NodeName.RESPONSE,
-        },
-    )
-    builder.add_conditional_edges(
-        NodeName.SQL_EXPERT, route_sql_expert,
-        {
-            NodeName.RESPONSE:     NodeName.RESPONSE,
-            NodeName.SQL_EXECUTOR: NodeName.SQL_EXECUTOR,
-        },
-    )
-    builder.add_conditional_edges(
-        NodeName.SQL_EXECUTOR, route_sql_executor,
-        {
-            NodeName.SQL_REPAIR:        NodeName.SQL_REPAIR,
-            NodeName.RESULT_FORMATTER:  NodeName.RESULT_FORMATTER,
-        },
-    )
+    builder.add_conditional_edges(NodeName.INTENT_ROUTER, route_intent)
+    builder.add_conditional_edges(NodeName.SQL_EXPERT, route_sql_expert)
+    builder.add_conditional_edges(NodeName.SQL_EXECUTOR, route_sql_executor)
 
     builder.add_edge(NodeName.SQL_REPAIR,        NodeName.SQL_EXECUTOR)
     builder.add_edge(NodeName.RESULT_FORMATTER,  END)

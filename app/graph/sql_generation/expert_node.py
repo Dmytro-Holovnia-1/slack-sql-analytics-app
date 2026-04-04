@@ -1,3 +1,5 @@
+from typing import Literal
+
 from datetime import UTC, datetime
 
 from loguru import logger
@@ -53,7 +55,12 @@ async def sql_expert_node(state: GraphState, llm_client) -> dict:
     }
 
 
-def route_sql_expert(state: GraphState) -> str:
+def route_sql_expert(
+    state: GraphState,
+) -> Literal[
+    "response_node",
+    "sql_executor_node",
+]:
     if state.get("direct_response"):
         logger.debug("Routing to response_node")
         return "response_node"

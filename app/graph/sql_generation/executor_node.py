@@ -1,3 +1,5 @@
+from typing import Literal
+
 from loguru import logger
 
 from app.config import MAX_SQL_REPAIR_ATTEMPTS
@@ -27,7 +29,12 @@ async def sql_executor_node(state: GraphState, query_service) -> dict:
         return {"sql_error": str(exc), "query_results": None, "row_count": 0}
 
 
-def route_sql_executor(state: GraphState) -> str:
+def route_sql_executor(
+    state: GraphState,
+) -> Literal[
+    "sql_repair_node",
+    "result_formatter_node",
+]:
     has_error = state.get("sql_error") is not None
     repair_count = state.get("repair_count", 0)
 

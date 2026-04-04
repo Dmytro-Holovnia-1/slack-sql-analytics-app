@@ -1,3 +1,5 @@
+from typing import Literal
+
 from loguru import logger
 
 from app.graph.messages import latest_message_text, to_langchain_history
@@ -43,7 +45,14 @@ async def intent_router_node(state: GraphState, llm_client) -> dict:
     }
 
 
-def route_intent(state: GraphState) -> str:
+def route_intent(
+    state: GraphState,
+) -> Literal[
+    "sql_expert_node",
+    "artifact_retrieval_node",
+    "meta_analyst_node",
+    "response_node",
+]:
     intent = state.get("intent", "decline_off_topic_request_unrelated_to_analytics")
     target = _INTENT_MAP.get(intent, "response_node")
     logger.debug(f"Routing intent '{intent}' to {target}")
