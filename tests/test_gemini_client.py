@@ -2,6 +2,8 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from google.api_core.exceptions import ResourceExhausted
+from langchain_core.runnables import RunnableLambda
 from pydantic import BaseModel
 
 from app.config import Settings
@@ -32,73 +34,63 @@ def build_settings() -> Settings:
 
 
 @pytest.mark.asyncio
-async def test_generate_with_prompt_retries_retryable_error(monkeypatch):
+async def test_generate_with_prompt_retries_retryable_error():
     client = GeminiClient(build_settings())
-    sleep_mock = AsyncMock()
 
-    # Mock asyncio.sleep at the module level
-    with patch("asyncio.sleep", sleep_mock):
-        fake_model = SimpleNamespace(
-            ainvoke=AsyncMock(
-                side_effect=[
-                    Exception("429 RESOURCE_EXHAUSTED. Please retry in 2.5s."),
-                    SimpleNamespace(content="ok"),
-                ]
-            )
-        )
-        client._get_client = lambda model_type=ModelType.LOW_COST: fake_model
+    ainvoke_mock = AsyncMock(
+        side_effect=[
+            ResourceExhausted("quota exhausted"),
+            SimpleNamespace(content="ok"),
+        ]
+    )
+    client._get_client = lambda model_type=ModelType.LOW_COST: RunnableLambda(ainvoke_mock)
 
+    with patch("asyncio.sleep", AsyncMock()) as sleep_mock:
         result = await client._generate_with_prompt("prompt")
 
     assert result == "ok"
-    assert fake_model.ainvoke.await_count == 2
+    assert ainvoke_mock.await_count == 2
     sleep_mock.assert_awaited_once()
 
 
 @pytest.mark.asyncio
-async def test_generate_with_prompt_does_not_retry_non_retryable_error(monkeypatch):
+async def test_generate_with_prompt_does_not_retry_non_retryable_error():
     client = GeminiClient(build_settings())
-    sleep_mock = AsyncMock()
 
-    with patch("asyncio.sleep", sleep_mock):
-        fake_model = SimpleNamespace(ainvoke=AsyncMock(side_effect=ValueError("bad request")))
-        client._get_client = lambda model_type=ModelType.LOW_COST: fake_model
+    ainvoke_mock = AsyncMock(side_effect=ValueError("bad request"))
+    client._get_client = lambda model_type=ModelType.LOW_COST: RunnableLambda(ainvoke_mock)
 
+    with patch("asyncio.sleep", AsyncMock()) as sleep_mock:
         with pytest.raises(ValueError, match="bad request"):
             await client._generate_with_prompt("prompt")
 
-    assert fake_model.ainvoke.await_count == 1
+    assert ainvoke_mock.await_count == 1
     sleep_mock.assert_not_awaited()
 
 
 @pytest.mark.asyncio
 async def test_generate_structured_output_retries_with_default_delay(monkeypatch):
     client = GeminiClient(build_settings())
-    sleep_mock = AsyncMock()
 
-    with patch("asyncio.sleep", sleep_mock):
-        fake_runnable = SimpleNamespace(
-            ainvoke=AsyncMock(
-                side_effect=[
-                    Exception("Quota exceeded for metric generate_content_free_tier_requests"),
-                    ExampleResponse(answer="done"),
-                ]
-            )
-        )
+    ainvoke_mock = AsyncMock(
+        side_effect=[
+            ResourceExhausted("quota exhausted"),
+            ExampleResponse(answer="done"),
+        ]
+    )
+    fake_runnable = RunnableLambda(ainvoke_mock)
 
-        class FakePromptTemplate:
-            def invoke(self, values):
-                return SimpleNamespace(messages=[SimpleNamespace(type="human", content=values["input"])])
+    class FakeClient:
+        def with_structured_output(self, response_model):
+            return fake_runnable
 
-            def __or__(self, other):
-                return fake_runnable
+    client._get_client = lambda model_type=ModelType.LOW_COST: FakeClient()
+    monkeypatch.setattr(
+        "app.llm.gemini_client.ChatPromptTemplate.from_messages",
+        lambda messages: _FakePromptTemplate(),
+    )
 
-        fake_model = SimpleNamespace(with_structured_output=lambda response_model: fake_runnable)
-        client._get_client = lambda model_type=ModelType.LOW_COST: fake_model
-        monkeypatch.setattr(
-            "app.llm.gemini_client.ChatPromptTemplate.from_messages", lambda messages: FakePromptTemplate()
-        )
-
+    with patch("asyncio.sleep", AsyncMock()) as sleep_mock:
         result = await client.generate_structured_output(
             system_prompt="system",
             user_prompt="user",
@@ -106,5 +98,10 @@ async def test_generate_structured_output_retries_with_default_delay(monkeypatch
         )
 
     assert result == ExampleResponse(answer="done")
-    assert fake_runnable.ainvoke.await_count == 2
+    assert ainvoke_mock.await_count == 2
     sleep_mock.assert_awaited_once()
+
+
+class _FakePromptTemplate:
+    def invoke(self, values):
+        return SimpleNamespace(messages=[SimpleNamespace(type="human", content=values["input"])])

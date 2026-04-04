@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     google_api_key: SecretStr
     gemini_standard_model: str
     gemini_low_cost_model: str
-    gemini_transient_retry_max_retries: int = 1
+    gemini_transient_retry_max_retries: int = 3
     gemini_transient_retry_default_delay_seconds: float = 5.0
     gemini_transient_retry_max_delay_seconds: float = 60.0
     fallback_text: str = "Sorry, the assistant encountered an unexpected error. Please try again later."
