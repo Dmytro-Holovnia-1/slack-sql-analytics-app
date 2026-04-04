@@ -113,5 +113,5 @@ repos:
         language: system
         pass_filenames: false
         require_serial: true
-        entry: python3 -m pytest tests -q
+        entry: python3 -m pytest tests -q  --ignore=tests/stress_test.py
         verbose: true

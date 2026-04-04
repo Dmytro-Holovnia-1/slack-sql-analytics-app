@@ -1,21 +1,18 @@
-# tests/stress_test.py
 """
 Usage:
     python -m tests.stress_test
     python -m tests.stress_test --concurrency 40
 """
 
+import argparse
 import asyncio
 import statistics
 import time
-import argparse
-import unittest.mock as mock
 from dataclasses import dataclass
 
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.memory import MemorySaver
-from loguru import logger
 
 from app.config import load_settings
 from app.graph.graph import build_graph
@@ -65,7 +62,7 @@ async def run_one(graph, question: str, thread_id: str) -> Result:
             question=question,
             success=False,
             duration_s=time.perf_counter() - start,
-            error=str(e)[:120],
+            error=str(e),
         )
 
 
@@ -77,14 +74,6 @@ async def run(concurrency: int) -> None:
         checkpointer=MemorySaver(),
     )
 
-    retry_counter = {"n": 0}
-    _original_sleep = asyncio.sleep
-
-    async def spy_sleep(delay, *args, **kwargs):
-        retry_counter["n"] += 1
-        logger.warning(f"[GEMINI RETRY #{retry_counter['n']}] sleeping {delay:.1f}s")
-        await _original_sleep(delay, *args, **kwargs)
-
     questions = (QUESTIONS * ((concurrency // len(QUESTIONS)) + 1))[:concurrency]
 
     print(f"\n{'=' * 58}")
@@ -92,8 +81,7 @@ async def run(concurrency: int) -> None:
     print(f"{'=' * 58}")
 
     wall_start = time.perf_counter()
-    with mock.patch("asyncio.sleep", spy_sleep):
-        results = await asyncio.gather(*(run_one(graph, q, f"stress-{i}") for i, q in enumerate(questions)))
+    results = await asyncio.gather(*(run_one(graph, q, f"stress-{i}") for i, q in enumerate(questions)))
     wall = time.perf_counter() - wall_start
 
     ok = [r for r in results if r.success]
@@ -102,9 +90,8 @@ async def run(concurrency: int) -> None:
 
     print(f"\n  ✓ Success:         {len(ok)}/{concurrency} ({100 * len(ok) // concurrency}%)")
     print(f"  ✗ Failures:        {len(fail)}")
-    print(f"  ↺ Gemini retries:  {retry_counter['n']}")
     print(f"  ⏱  Wall time:       {wall:.1f}s\n")
-    print(f"  Latency per request:")
+    print("  Latency per request:")
     print(f"    min    {durations[0]:.2f}s")
     print(f"    p50    {statistics.median(durations):.2f}s")
     print(f"    p95    {durations[int(0.95 * len(durations))]:.2f}s")
@@ -112,7 +99,7 @@ async def run(concurrency: int) -> None:
     print(f"    max    {durations[-1]:.2f}s")
 
     if fail:
-        print(f"\n  Failures:")
+        print("\n  Failures:")
         for r in fail:
             print(f"    [{r.duration_s:.1f}s] {r.question[:45]!r} → {r.error}")
 
@@ -120,7 +107,7 @@ async def run(concurrency: int) -> None:
     for r in ok:
         intents[r.intent or "unknown"] = intents.get(r.intent or "unknown", 0) + 1
     if intents:
-        print(f"\n  Intent distribution:")
+        print("\n  Intent distribution:")
         for intent, n in sorted(intents.items(), key=lambda x: -x[1]):
             print(f"    {n:3d}×  {intent}")
     print()
@@ -128,5 +115,5 @@ async def run(concurrency: int) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--concurrency", type=int, default=40)
+    parser.add_argument("--concurrency", type=int, default=10)
     asyncio.run(run(parser.parse_args().concurrency))
