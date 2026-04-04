@@ -28,8 +28,6 @@ def build_settings() -> Settings:
         chatbot_db_user="user",
         chatbot_db_password="pass",
         gemini_transient_retry_max_retries=1,
-        gemini_transient_retry_default_delay_seconds=5.0,
-        gemini_transient_retry_max_delay_seconds=60.0,
     )
 
 

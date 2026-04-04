@@ -49,8 +49,7 @@ def message_text(message: Any) -> str:
 def latest_message_text(messages: Iterable[Any], role: str) -> str | None:
     for message in reversed(list(messages)):
         if message_role(message) == role:
-            text = message_text(message).strip()
-            if text:
+            if text := message_text(message).strip():
                 return text
     return None
 
