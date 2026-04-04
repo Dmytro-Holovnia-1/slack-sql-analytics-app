@@ -3,15 +3,10 @@ from typing import Annotated, Any, Literal, TypedDict
 from langgraph.graph.message import add_messages
 
 
-class _GraphStateRequired(TypedDict, total=True):
-    """Required fields that must always be present in GraphState."""
-
-    messages: Annotated[list[Any], add_messages]
-
-
-class GraphState(_GraphStateRequired, total=False):
+class GraphState(TypedDict, total=False):
     """Graph state with optional fields for optional data."""
 
+    messages: Annotated[list[Any], add_messages]
     intent: Literal[
         "query_database_for_new_analytics_data",
         "retrieve_sql_code_from_previous_conversation_turn",
@@ -23,7 +18,7 @@ class GraphState(_GraphStateRequired, total=False):
     sql_title: str | None
     query_results: list[dict[str, Any]] | None
     row_count: int
-    direct_response: str | None  # any response bypassing SQL pipeline (clarification or meta-question)
+    direct_response: str | None
     sql_error: str | None
     repair_count: int
     artifact_format: Literal["sql", "csv"] | None
